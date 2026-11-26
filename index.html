@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<meta name="description" content="Seven Chat - AI assistant">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Seven Chat</title>
+<style>
+  :root { --bg:#f6f7fb; --card:#ffffff; --text:#14161c; --muted:#6b7280; --line:#e5e7eb; --accent:#4f46e5; --bot:#eef0f6; --danger:#dc2626; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1115; --card:#181b22; --text:#eef0f6; --muted:#8b91a3; --line:#2a2f3a; --bot:#232733; --danger:#ef4444; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+  .i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .icon-btn { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex: none; }
+  .icon-btn:active { background: var(--bot); }
+  .icon-btn.sm { width: 32px; height: 32px; }
+  .icon-btn.sm .i { width: 18px; height: 18px; }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 12px; padding-top: calc(10px + env(safe-area-inset-top));
+           background: var(--card); border-bottom: 1px solid var(--line); }
+  .logo { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #fff; display: flex;
+          align-items: center; justify-content: center; font-weight: 700; flex: none; }
+  .title { font-weight: 600; font-size: 17px; line-height: 1.15; }
+  .sub { font-size: 12px; color: var(--muted); }
+  #chat { flex: 1; overflow-y: auto; padding: 16px 14px; display: flex; flex-direction: column; gap: 10px; overscroll-behavior: contain; }
+  .msg { max-width: 85%; padding: 10px 14px; border-radius: 16px; line-height: 1.45; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .me { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .bot { align-self: flex-start; background: var(--bot); border-bottom-left-radius: 4px; }
+  .msg img { display: block; width: 100%; max-width: 240px; border-radius: 12px; margin-bottom: 6px; cursor: zoom-in; }
+  .msg img:last-child { margin-bottom: 0; }
+  .typing { color: var(--muted); }
+  #preview { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--card); border-top: 1px solid var(--line); }
+  #preview img { width: 52px; height: 52px; object-fit: cover; border-radius: 10px; }
+  #preview span { flex: 1; font-size: 13px; color: var(--muted); }
+  #composer { display: flex; align-items: center; gap: 6px; padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom));
+              background: var(--card); border-top: 1px solid var(--line); position: relative; }
+  #inp { flex: 1; min-width: 0; padding: 11px 15px; border-radius: 22px; border: 1px solid var(--line); background: var(--bg);
+         color: var(--text); font-size: 16px; outline: none; }
+  #inp:focus { border-color: var(--accent); }
+  #sendBtn { background: var(--accent); color: #fff; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex: none; }
+  #sendBtn:disabled { opacity: .5; }
+  #micBtn { border: 1px solid var(--line); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex: none; }
+  #micBtn.rec { background: var(--danger); border-color: var(--danger); color: #fff; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .65; } }
+  #plusMenu { position: absolute; left: 12px; bottom: calc(66px + env(safe-area-inset-bottom)); background: var(--card);
+              border: 1px solid var(--line); border-radius: 14px; padding: 6px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+  .menu-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 12px; border-radius: 10px; font-size: 15px; text-align: left; }
+  .menu-item:active { background: var(--bot); }
+  .shade { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 20; opacity: 0; visibility: hidden; transition: opacity .2s, visibility .2s; }
+  .shade.open { opacity: 1; visibility: visible; }
+  .drawer { position: fixed; top: 0; bottom: 0; left: 0; width: min(84vw, 330px); background: var(--card); z-index: 21; overflow-y: auto;
+            transform: translateX(-102%); visibility: hidden; transition: transform .22s, visibility .22s;
+            padding: calc(12px + env(safe-area-inset-top)) 14px 20px; display: flex; flex-direction: column; gap: 14px; }
+  .drawer.open { transform: none; visibility: visible; }
+  .drawer-top { display: flex; align-items: center; justify-content: space-between; font-size: 17px; }
+  .founder { display: flex; align-items: center; gap: 12px; background: var(--bg); border-radius: 14px; padding: 12px; }
+  .avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; flex: none; }
+  .small { font-size: 12px; color: var(--muted); }
+  .fname { font-weight: 600; font-size: 14px; }
+  .drawer h3 { margin: 0 0 6px; font-size: 13px; font-weight: 500; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .drawer h3 .i { width: 16px; height: 16px; }
+  .hrow { display: flex; align-items: center; border-radius: 10px; }
+  .hrow.active { background: var(--bg); }
+  .htitle { flex: 1; min-width: 0; text-align: left; padding: 10px; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .grid img { width: 100%; height: 96px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); cursor: zoom-in; }
+  .empty { font-size: 13px; color: var(--muted); margin: 0; }
+  .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.9); z-index: 30; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+  #toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: #111; color: #fff; padding: 10px 16px;
+           border-radius: 20px; font-size: 14px; z-index: 40; max-width: 90vw; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <button id="openMenu" class="icon-btn" aria-label="Menu kholo"><svg class="i" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+  <div class="logo">7</div>
+  <div><div class="title">Seven Chat</div><div class="sub">AI assistant</div></div>
+</header>
+
+<div id="chat" aria-live="polite"></div>
+
+<div id="preview" hidden>
+  <img id="prevImg" alt="Chuni hui photo">
+  <span>Photo ke saath kuch likho ya seedha bhejo</span>
+  <button id="prevRemove" class="icon-btn sm" aria-label="Photo hatao"><svg class="i" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+</div>
+
+<form id="composer" autocomplete="off">
+  <div id="plusMenu" hidden>
+    <button type="button" id="pickPhoto" class="menu-item"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Photo upload</button>
+  </div>
+  <button type="button" id="plusBtn" class="icon-btn" style="border:1px solid var(--line)" aria-label="Attach karo"><svg class="i" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+  <input id="inp" placeholder="Apna message likho" autocomplete="off" enterkeyhint="send">
+  <button type="submit" id="sendBtn" aria-label="Bhejo"><svg class="i" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+  <button type="button" id="micBtn" aria-label="Voice se bolo"><svg class="i" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></button>
+</form>
+<input type="file" id="file" accept="image/*" hidden>
+
+<div id="shade" class="shade"></div>
+<aside id="drawer" class="drawer" aria-label="Menu">
+  <div class="drawer-top"><strong>Menu</strong>
+    <button id="closeMenu" class="icon-btn" aria-label="Menu band karo"><svg class="i" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  </div>
+  <div class="founder">
+    <div class="avatar">SH</div>
+    <div><div class="small">Founder</div><div class="fname">SAYYAD HUZAIF ZAFAR</div></div>
+  </div>
+  <button id="newChat" class="menu-item" style="background:var(--bg)"><svg class="i" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>New chat</button>
+  <button id="installBtn" class="menu-item" style="background:var(--bg)" hidden><svg class="i" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>App install karo</button>
+  <section>
+    <h3><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Chat history</h3>
+    <div id="hist"></div>
+  </section>
+  <section>
+    <h3><svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Image history</h3>
+    <div id="imgs" class="grid"></div>
+  </section>
+</aside>
+
+<div id="lightbox" class="lightbox" hidden><img id="lbImg" alt="Photo"></div>
+<div id="toast" hidden></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const KEY = 'sevenchat.v1';
+const VOICE_LANG = 'hi-IN';
+const GREETING = 'Namaste! Main Seven Chat hoon. Kuch bhi poochho, ya + dabakar photo bhejo.';
+const TRASH = '<svg class="i" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>';
+
+let state = loadState();
+let pendingImg = null;
+let busy = false;
+let typingChatId = null;
+let toastTimer = null;
+let installEvent = null;
+
+function loadState() {
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if (s && Array.isArray(s.chats)) return s;
+  } catch (e) {}
+  return { chats: [], currentId: null };
+}
+function save() {
+  let i = state.chats.length;
+  while (true) {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); return; }
+    catch (e) {
+      i--;
+      if (i < 0) return;
+      state.chats[i].msgs.forEach((m) => { if (m.img) { m.img = null; m.text = (m.text || '') + ' [photo hata di gayi]'; } });
+    }
+  }
+}
+function getCurrent() { return state.chats.find((c) => c.id === state.currentId) || null; }
+function toast(t) {
+  const el = $('toast');
+  el.textContent = t; el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 3500);
+}
+
+function bubble(m) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + (m.role === 'user' ? 'me' : 'bot');
+  if (m.img) {
+    const im = document.createElement('img');
+    im.src = m.img; im.alt = 'Bheji hui photo';
+    im.onclick = () => openLightbox(m.img);
+    d.appendChild(im);
+  }
+  if (m.text) { const s = document.createElement('span'); s.textContent = m.text; d.appendChild(s); }
+  return d;
+}
+function render() {
+  const chat = getCurrent();
+  const el = $('chat');
+  el.textContent = '';
+  el.appendChild(bubble({ role: 'assistant', text: GREETING }));
+  if (chat) chat.msgs.forEach((m) => el.appendChild(bubble(m)));
+  if (busy && typingChatId === state.currentId) {
+    const t = bubble({ role: 'assistant', text: 'Soch raha hoon...' });
+    t.classList.add('typing');
+    el.appendChild(t);
+  }
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderPreview() {
+  $('preview').hidden = !pendingImg;
+  if (pendingImg) $('prevImg').src = pendingImg;
+}
+function emptyNote(t) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = t; return p; }
+function renderHist() {
+  const h = $('hist');
+  h.textContent = '';
+  if (!state.chats.length) { h.appendChild(emptyNote('Abhi koi chat nahi.')); return; }
+  state.chats.forEach((c) => {
+    const row = document.createElement('div');
+    row.className = 'hrow' + (c.id === state.currentId ? ' active' : '');
+    const b = document.createElement('button');
+    b.className = 'htitle'; b.textContent = c.title || 'Nayi chat';
+    b.onclick = () => { state.currentId = c.id; pendingImg = null; renderPreview(); save(); render(); closeMenu(); };
+    const d = document.createElement('button');
+    d.className = 'icon-btn sm'; d.setAttribute('aria-label', 'Chat delete karo'); d.innerHTML = TRASH;
+    d.onclick = () => {
+      if (!confirm('Ye chat delete karni hai?')) return;
+      state.chats = state.chats.filter((x) => x.id !== c.id);
+      if (state.currentId === c.id) state.currentId = null;
+      save(); render(); renderHist(); renderImgs();
+    };
+    row.append(b, d);
+    h.appendChild(row);
+  });
+}
+function renderImgs() {
+  const g = $('imgs');
+  g.textContent = '';
+  const all = [];
+  state.chats.forEach((c) => { for (let i = c.msgs.length - 1; i >= 0; i--) if (c.msgs[i].img) all.push(c.msgs[i].img); });
+  if (!all.length) { g.style.display = 'block'; g.appendChild(emptyNote('Abhi koi photo nahi. Chat mein + dabakar photo bhejo.')); return; }
+  g.style.display = 'grid';
+  all.slice(0, 60).forEach((src) => {
+    const im = document.createElement('img');
+    im.src = src; im.alt = 'Image history';
+    im.onclick = () => openLightbox(src);
+    g.appendChild(im);
+  });
+}
+
+function openMenu() { renderHist(); renderImgs(); $('drawer').classList.add('open'); $('shade').classList.add('open'); }
+function closeMenu() { $('drawer').classList.remove('open'); $('shade').classList.remove('open'); }
+function openLightbox(src) { $('lbImg').src = src; $('lightbox').hidden = false; }
+
+function compress(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => {
+      const sc = Math.min(1, 960 / Math.max(im.width, im.height));
+      const w = Math.max(1, Math.round(im.width * sc)), h = Math.max(1, Math.round(im.height * sc));
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(im, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.75));
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Photo khul nahi saki.')); };
+    im.src = url;
+  });
+}
+
+function buildPayload(chat) {
+  const msgs = chat.msgs.slice(-20);
+  while (msgs.length && msgs[0].role !== 'user') msgs.shift();
+  const withImg = [];
+  msgs.forEach((m, i) => { if (m.img) withImg.push(i); });
+  const keep = new Set(withImg.slice(-2));
+  return msgs.map((m, i) => {
+    if (m.img && keep.has(i)) {
+      const comma = m.img.indexOf(',');
+      const head = m.img.slice(0, comma);
+      const media = head.slice(5, head.indexOf(';'));
+      return { role: m.role, content: [
+        { type: 'image', source: { type: 'base64', media_type: media, data: m.img.slice(comma + 1) } },
+        { type: 'text', text: m.text || 'Is photo ke baare mein batao.' } ] };
+    }
+    return { role: m.role, content: (m.text || '') + (m.img ? ' [photo bheji thi]' : '') };
+  });
+}
+
+async function send() {
+  if (busy) return;
+  let text = $('inp').value.trim();
+  if (!text && !pendingImg) { $('inp').focus(); return; }
+  if (!text) text = 'Is photo ke baare mein batao.';
+  let chat = getCurrent();
+  const isNew = !chat;
+  if (isNew) {
+    chat = { id: Date.now().toString(36), title: text.slice(0, 40), msgs: [], ts: Date.now() };
+    state.chats.unshift(chat);
+    state.currentId = chat.id;
+  }
+  const um = { role: 'user', text, img: pendingImg || null };
+  chat.msgs.push(um);
+  pendingImg = null; $('inp').value = ''; renderPreview();
+  busy = true; typingChatId = chat.id; $('sendBtn').disabled = true;
+  save(); render();
+  try {
+    const res = await fetch('/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: buildPayload(chat) }) });
+    let data = {};
+    try { data = await res.json(); } catch (e) {}
+    if (!res.ok || !data.reply) throw new Error(data.error || 'Kuch galat hua, dobara try karo.');
+    chat.msgs.push({ role: 'assistant', text: data.reply });
+  } catch (err) {
+    chat.msgs.pop();
+    if (isNew) { state.chats = state.chats.filter((c) => c.id !== chat.id); state.currentId = null; }
+    $('inp').value = um.text === 'Is photo ke baare mein batao.' && um.img ? '' : um.text;
+    pendingImg = um.img; renderPreview();
+    toast(err.message === 'Failed to fetch' ? 'Internet nahi hai, dobara try karo.' : err.message);
+  }
+  busy = false; typingChatId = null; $('sendBtn').disabled = false;
+  save(); render();
+}
+
+$('composer').addEventListener('submit', (e) => { e.preventDefault(); send(); });
+$('openMenu').onclick = openMenu;
+$('closeMenu').onclick = closeMenu;
+$('shade').onclick = closeMenu;
+$('lightbox').onclick = () => { $('lightbox').hidden = true; };
+$('newChat').onclick = () => { state.currentId = null; pendingImg = null; renderPreview(); save(); render(); closeMenu(); $('inp').focus(); };
+$('prevRemove').onclick = () => { pendingImg = null; renderPreview(); };
+
+$('plusBtn').onclick = (e) => { e.stopPropagation(); $('plusMenu').hidden = !$('plusMenu').hidden; };
+document.addEventListener('click', (e) => { if (!$('plusMenu').contains(e.target)) $('plusMenu').hidden = true; });
+$('pickPhoto').onclick = () => { $('plusMenu').hidden = true; $('file').click(); };
+$('file').onchange = async (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  if (!f.type.startsWith('image/')) { toast('Sirf photo chuno.'); return; }
+  try { pendingImg = await compress(f); renderPreview(); $('inp').focus(); }
+  catch (err) { toast(err.message); }
+};
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false;
+$('micBtn').onclick = () => {
+  if (!SR) { toast('Is browser mein voice nahi chalti. Chrome use karo.'); return; }
+  if (listening && rec) { rec.stop(); return; }
+  rec = new SR();
+  rec.lang = VOICE_LANG; rec.interimResults = true; rec.continuous = false;
+  const base = $('inp').value.trim();
+  rec.onstart = () => { listening = true; $('micBtn').classList.add('rec'); $('inp').placeholder = 'Sun raha hoon...'; };
+  rec.onresult = (e) => {
+    let t = '';
+    for (const r of e.results) t += r[0].transcript;
+    $('inp').value = (base ? base + ' ' : '') + t;
+  };
+  rec.onerror = (e) => { toast(e.error === 'not-allowed' ? 'Mic ki permission do.' : 'Voice mein dikkat aayi, dobara try karo.'); };
+  rec.onend = () => { listening = false; $('micBtn').classList.remove('rec'); $('inp').placeholder = 'Apna message likho'; $('inp').focus(); };
+  try { rec.start(); } catch (e) {}
+};
+
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvent = e; $('installBtn').hidden = false; });
+$('installBtn').onclick = async () => {
+  if (!installEvent) return;
+  installEvent.prompt();
+  await installEvent.userChoice;
+  installEvent = null; $('installBtn').hidden = true;
+};
+window.addEventListener('appinstalled', () => { $('installBtn').hidden = true; });
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+render();
+</script>
+</body>
+</html>

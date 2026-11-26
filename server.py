@@ -1,12 +1,18 @@
 """Seven Chat - backend (sirf Python standard library, koi install nahi chahiye).
 
+Do AI provider chalte hain:
+  1) GEMINI_API_KEY set ho to Google Gemini (free tier) use hota hai.
+  2) Nahi to ANTHROPIC_API_KEY set ho to Claude use hota hai (paid).
+
 Chalane ka tareeka:
-    export ANTHROPIC_API_KEY="apni-key-yahan"     (Windows: set ANTHROPIC_API_KEY=apni-key-yahan)
+    export GEMINI_API_KEY="apni-key-yahan"     (Windows: set GEMINI_API_KEY=apni-key-yahan)
     python server.py
 Phir browser mein kholo: http://localhost:8000
 
 Optional settings (environment variables):
-    SEVEN_CHAT_MODEL   model ka naam (default: claude-sonnet-5-5)
+    AI_PROVIDER        "gemini" ya "anthropic" (agar dono keys hon to yahan se chuno)
+    GEMINI_MODEL       Gemini model ka naam (default: gemini-2.5-flash)
+    SEVEN_CHAT_MODEL   Claude model ka naam (default: claude-sonnet-5-5)
     RATE_PER_MIN       ek IP se 1 minute mein max messages (default 12)
     RATE_PER_DAY       ek IP se 1 din mein max messages (default 150)
     MAX_BODY_MB        request ka max size MB mein (default 6)
@@ -20,8 +26,17 @@ import urllib.request
 from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-MODEL = os.environ.get("SEVEN_CHAT_MODEL", "claude-sonnet-5-5")
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+PROVIDER = os.environ.get("AI_PROVIDER", "").strip().lower()
+if PROVIDER not in ("gemini", "anthropic"):
+    PROVIDER = "anthropic" if (ANTHROPIC_KEY and not GEMINI_KEY) else "gemini"
+
+CLAUDE_MODEL = os.environ.get("SEVEN_CHAT_MODEL", "claude-sonnet-5-5")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
+GEMINI_FALLBACKS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
+GEMINI_BASE = os.environ.get("GEMINI_BASE", "https://generativelanguage.googleapis.com").rstrip("/")
+
 PORT = int(os.environ.get("PORT", "8000"))
 RATE_PER_MIN = int(os.environ.get("RATE_PER_MIN", "12"))
 RATE_PER_DAY = int(os.environ.get("RATE_PER_DAY", "150"))
@@ -49,6 +64,19 @@ STATIC = {
 
 _hits = defaultdict(deque)
 _lock = threading.Lock()
+
+
+class AIError(Exception):
+    """User ko dikhane layak message ke saath."""
+
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+def has_key():
+    return bool(GEMINI_KEY if PROVIDER == "gemini" else ANTHROPIC_KEY)
 
 
 def check_rate(ip):
@@ -112,25 +140,95 @@ def clean_messages(raw):
     return out
 
 
+def _post_json(url, headers, body, timeout=90):
+    req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def ask_claude(messages):
-    body = json.dumps({
-        "model": MODEL,
-        "max_tokens": 1024,
-        "system": SYSTEM_PROMPT,
-        "messages": messages,
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=body,
-        headers={
-            "content-type": "application/json",
-            "x-api-key": API_KEY,
-            "anthropic-version": "2023-06-01",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=90) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    try:
+        data = _post_json(
+            "https://api.anthropic.com/v1/messages",
+            {"content-type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01"},
+            {"model": CLAUDE_MODEL, "max_tokens": 1024, "system": SYSTEM_PROMPT, "messages": messages},
+        )
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "ignore")[:300]
+        print("Claude API error", e.code, detail, flush=True)
+        msg = {
+            400: "Request mein dikkat hai, ya API credit khatam ho gaya hai.",
+            401: "Server ki API key galat hai.",
+            403: "API access nahi mila.",
+            429: "Abhi bahut load hai, thodi der baad try karo.",
+            529: "AI abhi busy hai, thodi der baad try karo.",
+        }.get(e.code, f"AI se jawab nahi aaya (error {e.code}).")
+        raise AIError(502, msg)
     return "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+
+
+def to_gemini_contents(messages):
+    contents = []
+    for m in messages:
+        parts = []
+        if isinstance(m["content"], str):
+            parts.append({"text": m["content"]})
+        else:
+            for b in m["content"]:
+                if b["type"] == "text":
+                    parts.append({"text": b["text"]})
+                else:
+                    parts.append({"inline_data": {"mime_type": b["source"]["media_type"],
+                                                  "data": b["source"]["data"]}})
+        contents.append({"role": "user" if m["role"] == "user" else "model", "parts": parts})
+    return contents
+
+
+def ask_gemini(messages):
+    body = {
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": to_gemini_contents(messages),
+        "generationConfig": {"maxOutputTokens": 1024},
+    }
+    headers = {"content-type": "application/json", "x-goog-api-key": GEMINI_KEY}
+    models = [GEMINI_MODEL] + [m for m in GEMINI_FALLBACKS if m != GEMINI_MODEL]
+    data = None
+    for i, model in enumerate(models):
+        url = f"{GEMINI_BASE}/v1beta/models/{model}:generateContent"
+        try:
+            data = _post_json(url, headers, body)
+            break
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "ignore")[:400]
+            print(f"Gemini API error {e.code} (model {model})", detail, flush=True)
+            if e.code == 404 and i < len(models) - 1:
+                continue  # ye model nahi mila, agla try karo
+            low = detail.lower()
+            if e.code in (400, 401, 403) and ("api key" in low or "api_key" in low or e.code in (401, 403)):
+                raise AIError(502, "Server ki Gemini API key galat hai.")
+            if e.code == 429:
+                raise AIError(502, "Free limit poori ho gayi. Thodi der baad try karo.")
+            if e.code == 404:
+                raise AIError(502, "Gemini model nahi mila. GEMINI_MODEL badalna padega.")
+            if e.code >= 500:
+                raise AIError(502, "AI abhi busy hai, thodi der baad try karo.")
+            raise AIError(502, f"AI se jawab nahi aaya (error {e.code}).")
+    if data is None:
+        raise AIError(502, "AI se jawab nahi aaya.")
+    cands = data.get("candidates") or []
+    if not cands:
+        if (data.get("promptFeedback") or {}).get("blockReason"):
+            return "Maaf karna, main is sawal ka jawab nahi de sakta. Kuch aur poochho."
+        return ""
+    parts = (cands[0].get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+    if not text and cands[0].get("finishReason") in ("SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT"):
+        return "Maaf karna, main is sawal ka jawab nahi de sakta. Kuch aur poochho."
+    return text
+
+
+def ask_ai(messages):
+    return ask_gemini(messages) if PROVIDER == "gemini" else ask_claude(messages)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -167,8 +265,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path != "/chat":
             return self._send(404, "text/plain", b"Not found")
-        if not API_KEY:
-            return self._json(500, {"error": "Server par ANTHROPIC_API_KEY set nahi hai."})
+        if not has_key():
+            name = "GEMINI_API_KEY" if PROVIDER == "gemini" else "ANTHROPIC_API_KEY"
+            return self._json(500, {"error": f"Server par {name} set nahi hai."})
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
@@ -184,19 +283,10 @@ class Handler(BaseHTTPRequestHandler):
         if not ok:
             return self._json(429, {"error": why})
         try:
-            reply = ask_claude(messages)
+            reply = ask_ai(messages)
             self._json(200, {"reply": reply or "(khaali jawab aaya, dobara try karo)"})
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", "ignore")[:300]
-            print("API error", e.code, detail, flush=True)
-            msg = {
-                400: "Request mein dikkat hai, ya API credit khatam ho gaya hai.",
-                401: "Server ki API key galat hai.",
-                403: "API access nahi mila.",
-                429: "Abhi bahut load hai, thodi der baad try karo.",
-                529: "AI abhi busy hai, thodi der baad try karo.",
-            }.get(e.code, f"AI se jawab nahi aaya (error {e.code}).")
-            self._json(502, {"error": msg})
+        except AIError as e:
+            self._json(e.status, {"error": e.message})
         except (urllib.error.URLError, TimeoutError):
             self._json(502, {"error": "AI tak pahunch nahi paaye. Thodi der baad try karo."})
         except Exception as e:
@@ -208,5 +298,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"Seven Chat chal raha hai: http://localhost:{PORT}", flush=True)
+    print(f"Seven Chat chal raha hai: http://localhost:{PORT} (AI: {PROVIDER})", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
